@@ -7,7 +7,7 @@
     "dev": "node server/index.mjs",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "test": "node --test server/*.test.mjs",
+    "test": "node --experimental-strip-types --test server/*.test.mjs",
     "start": "node server/index.mjs --production",
     "preview": "node server/index.mjs --production"
   },
@@ -16,6 +16,8 @@
     "@fontsource-variable/manrope": "^5.3.0",
     "dotenv": "^18.0.5",
     "express": "^5.2.1",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "lucide-react": "^1.52.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

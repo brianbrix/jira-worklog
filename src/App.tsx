@@ -1,20 +1,21 @@
 import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
-import { ArrowDownLeft, ArrowUpRight, CalendarDays, Check, Clock3, Download, ExternalLink, FolderKanban, LoaderCircle, RefreshCw, Search, Unplug } from 'lucide-react'
+import type { FormEvent, KeyboardEvent } from 'react'
+import { ArrowDownLeft, ArrowUpRight, CalendarDays, Check, ChevronDown, Clock3, Download, ExternalLink, FolderKanban, LoaderCircle, ReceiptText, RefreshCw, Search, Unplug } from 'lucide-react'
+import InvoiceSection from './InvoiceSection'
+import { groupWorkItems, worklogCsv } from './worklogs'
+import type { WorklogEntry as Entry } from './worklogs'
 import './App.css'
 
 const jiraUrl = 'https://devgateway.atlassian.net'
 type Range = { from: string; to: string }
 type Project = { key: string; name: string; url: string }
-type Entry = {
-  id: string; date: string; started: string; seconds: number; comment: string
-  issueKey: string; summary: string; issueUrl: string; project: Project
-}
 type Report = Range & {
   user: { displayName: string; timeZone: string }
   entries: Entry[]; fetchedAt: string
 }
 type Preset = 'week' | 'last-week' | 'month' | 'custom'
+type View = 'worklogs' | 'invoice'
+type Grouping = 'entries' | 'work-items'
 
 function localDate(date: Date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
@@ -70,26 +71,18 @@ function sampleReport(range: Range): Report {
   return { ...range, user: { displayName: 'Sample user', timeZone: 'UTC' }, entries, fetchedAt: new Date().toISOString() }
 }
 
-function exportCsv(entries: Entry[], range: Range) {
-  const cell = (value: string | number) => {
-    let text = String(value)
-    if (/^\s*[=+\-@\t\r]/.test(text)) text = `'${text}`
-    return `"${text.replaceAll('"', '""')}"`
-  }
-  const rows = [
-    ['Date', 'Project', 'Project key', 'Issue', 'Summary', 'Comment', 'Seconds', 'Hours', 'Issue URL'],
-    ...entries.map((entry) => [entry.date, entry.project.name, entry.project.key, entry.issueKey,
-      entry.summary, entry.comment, entry.seconds, (entry.seconds / 3600).toFixed(4), entry.issueUrl]),
-  ]
-  const url = URL.createObjectURL(new Blob([rows.map((row) => row.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' }))
+function exportCsv(entries: Entry[], range: Range, grouping: Grouping) {
+  const url = URL.createObjectURL(new Blob([worklogCsv(entries, grouping === 'work-items')], { type: 'text/csv;charset=utf-8' }))
   const anchor = document.createElement('a')
   anchor.href = url
-  anchor.download = `jira-worklog-${range.from}-to-${range.to}.csv`
+  anchor.download = `jira-worklog-${grouping === 'work-items' ? 'by-work-item-' : ''}${range.from}-to-${range.to}.csv`
   anchor.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 function App() {
+  const [view, setView] = useState<View>('worklogs')
+  const [grouping, setGrouping] = useState<Grouping>('entries')
   const [draft, setDraft] = useState<Range>(() => presetRange('week'))
   const [range, setRange] = useState(draft)
   const [preset, setPreset] = useState<Preset>('week')
@@ -139,6 +132,7 @@ function App() {
   const entries = (report?.entries ?? []).filter((entry) =>
     (projectKey === 'all' || entry.project.key === projectKey)
     && `${entry.issueKey} ${entry.summary} ${entry.comment} ${entry.project.name}`.toLowerCase().includes(query.toLowerCase()))
+  const workItems = groupWorkItems(entries)
   const totalSeconds = entries.reduce((total, entry) => total + entry.seconds, 0)
   const breakdown = projects.map((project) => {
     const matching = entries.filter((entry) => entry.project.key === project.key)
@@ -166,6 +160,14 @@ function App() {
     }
   }
 
+  function navigateTabs(event: KeyboardEvent<HTMLDivElement>) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const nextView: View = event.key === 'Home' ? 'worklogs' : event.key === 'End' ? 'invoice' : view === 'worklogs' ? 'invoice' : 'worklogs'
+    setView(nextView)
+    event.currentTarget.querySelector<HTMLButtonElement>(`#${nextView}-tab`)?.focus()
+  }
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -180,7 +182,7 @@ function App() {
           <div><div className="eyebrow">PERSONAL TIMESHEET</div><h1>My worklog</h1><p>{report ? report.user.displayName : 'Current Jira user'}<span className="separator">/</span>{report?.user.timeZone ?? 'Jira account timezone'}</p></div>
           <div className="heading-actions">
             <button className="icon-button" type="button" aria-label="Refresh worklogs" title="Refresh worklogs" disabled={loading} onClick={() => { resetReport(); setRevision((value) => value + 1) }}><RefreshCw size={18} className={loading ? 'spin' : ''} /></button>
-            <button className="secondary-button" type="button" aria-label="Export CSV" title="Export CSV" disabled={!entries.length || loading} onClick={() => exportCsv(entries, range)}><Download size={16} />Export CSV</button>
+            <button className="secondary-button" type="button" aria-label="Export CSV" title={grouping === 'work-items' ? 'Export work items as CSV' : 'Export CSV'} disabled={!entries.length || loading} onClick={() => exportCsv(entries, range, grouping)}><Download size={16} />Export CSV</button>
           </div>
         </div>
 
@@ -200,6 +202,11 @@ function App() {
         {error && <div className="error-banner" role="alert">{error}</div>}
         {sample && <div className="sample-notice"><span className="sample-label">SAMPLE DATA</span><span>Not connected to your Jira worklogs.</span></div>}
 
+        <div className="view-tabs" role="tablist" aria-label="Report views" onKeyDown={navigateTabs}>
+          <button id="worklogs-tab" type="button" role="tab" aria-selected={view === 'worklogs'} aria-controls="worklogs-panel" tabIndex={view === 'worklogs' ? 0 : -1} onClick={() => setView('worklogs')}><Clock3 size={16} />Worklogs</button>
+          <button id="invoice-tab" type="button" role="tab" aria-selected={view === 'invoice'} aria-controls="invoice-panel" tabIndex={view === 'invoice' ? 0 : -1} onClick={() => setView('invoice')}><ReceiptText size={16} />Invoice</button>
+        </div>
+        <div className="tab-panel" id="worklogs-panel" role="tabpanel" aria-labelledby="worklogs-tab" hidden={view !== 'worklogs'}>
         <section className="summary-band" aria-label="Time summary" aria-busy={loading}>
           <div className="total-stat"><span className="stat-label"><Clock3 size={15} />{filtered ? 'Filtered time' : 'Total logged time'}</span><strong>{report && !loading ? duration(totalSeconds) : '--'}</strong><span className="stat-note">{displayDate(range.from, true)} - {displayDate(range.to)}</span></div>
           <div className="small-stat"><span className="stat-label">Projects</span><strong>{report && !loading ? breakdown.length : '--'}</strong><span className="stat-note">with logged time</span></div>
@@ -224,13 +231,33 @@ function App() {
             </section>
 
             <section className="entries-section" aria-label="Worklog entries">
-              <div className="entries-heading"><div className="section-heading"><h2>Worklog entries</h2><span className="count-badge">{entries.length}</span></div>
-                <div className="table-filters"><label className="search-field"><Search size={15} /><input aria-label="Search worklogs" type="search" placeholder="Search issues or notes" value={query} onChange={(event) => setQuery(event.target.value)} /></label><select aria-label="Filter by project" value={projectKey} onChange={(event) => setProjectKey(event.target.value)}><option value="all">All projects</option>{projects.map((project) => <option key={project.key} value={project.key}>{project.name}</option>)}</select></div>
+              <div className="entries-heading"><div className="section-heading"><h2>{grouping === 'work-items' ? 'Work items' : 'Worklog entries'}</h2><span className="count-badge">{grouping === 'work-items' ? workItems.length : entries.length}</span></div>
+                <div className="entries-toolbar">
+                  <div className="presets grouping-control" role="radiogroup" aria-label="Group worklogs">
+                    {([['entries', 'Entries'], ['work-items', 'Work items']] as const).map(([value, label]) => <label key={value} className={grouping === value ? 'active' : ''}><input type="radio" name="worklog-grouping" checked={grouping === value} onChange={() => setGrouping(value)} />{label}</label>)}
+                  </div>
+                  <div className="table-filters"><label className="search-field"><Search size={15} /><input aria-label="Search worklogs" type="search" placeholder="Search issues or notes" value={query} onChange={(event) => setQuery(event.target.value)} /></label><select aria-label="Filter by project" value={projectKey} onChange={(event) => setProjectKey(event.target.value)}><option value="all">All projects</option>{projects.map((project) => <option key={project.key} value={project.key}>{project.name}</option>)}</select></div>
+                </div>
               </div>
-              <div className="table-scroll"><table><thead><tr><th>Date</th><th>Issue / worklog</th><th>Project</th><th className="time-cell">Time logged</th></tr></thead><tbody>{entries.map((entry) => <tr key={entry.id}><td className="date-cell">{displayDate(entry.date, true)}</td><td className="issue-cell"><a href={entry.issueUrl} target="_blank" rel="noreferrer">{entry.issueKey}<ArrowUpRight size={12} /></a><div>{entry.summary}</div>{entry.comment && <p>{entry.comment}</p>}</td><td><a className="project-key" href={entry.project.url} target="_blank" rel="noreferrer">{entry.project.key}<ExternalLink size={11} /></a></td><td className="time-cell">{duration(entry.seconds)}</td></tr>)}</tbody>{entries.length > 0 && <tfoot><tr><td colSpan={3}>{filtered ? 'Filtered total' : 'Total'} <span>{entries.length} entries</span></td><td className="time-cell">{duration(totalSeconds)}</td></tr></tfoot>}</table></div>
+              <div className="table-scroll"><table>
+                <thead><tr><th>{grouping === 'work-items' ? 'Dates' : 'Date'}</th><th>{grouping === 'work-items' ? 'Work item' : 'Issue / worklog'}</th><th>Project</th><th className="time-cell">Time logged</th></tr></thead>
+                <tbody>{grouping === 'work-items' ? workItems.map(item => <tr key={item.issueKey}>
+                  <td className="date-cell work-item-date"><span>{displayDate(item.from, item.from.slice(0, 4) === item.to.slice(0, 4))}</span>{item.to !== item.from && <span>to {displayDate(item.to, item.from.slice(0, 4) === item.to.slice(0, 4))}</span>}</td>
+                  <td className="issue-cell"><a href={item.issueUrl} target="_blank" rel="noreferrer">{item.issueKey}<ArrowUpRight size={12} /></a><div>{item.summary}</div>
+                    <details className="work-item-logs"><summary>{item.entries.length} {item.entries.length === 1 ? 'worklog' : 'worklogs'}<ChevronDown size={12} /></summary><div className="work-item-log-list">{item.entries.map(entry => <div className="work-item-log" key={entry.id}><time dateTime={entry.date}>{displayDate(entry.date)}</time><strong>{duration(entry.seconds)}</strong>{entry.comment && <p>{entry.comment}</p>}</div>)}</div></details>
+                  </td>
+                  <td><a className="project-key" href={item.project.url} target="_blank" rel="noreferrer">{item.project.key}<ExternalLink size={11} /></a></td>
+                  <td className="time-cell">{duration(item.seconds)}</td>
+                </tr>) : entries.map((entry) => <tr key={entry.id}><td className="date-cell">{displayDate(entry.date, true)}</td><td className="issue-cell"><a href={entry.issueUrl} target="_blank" rel="noreferrer">{entry.issueKey}<ArrowUpRight size={12} /></a><div>{entry.summary}</div>{entry.comment && <p>{entry.comment}</p>}</td><td><a className="project-key" href={entry.project.url} target="_blank" rel="noreferrer">{entry.project.key}<ExternalLink size={11} /></a></td><td className="time-cell">{duration(entry.seconds)}</td></tr>)}</tbody>
+                {entries.length > 0 && <tfoot><tr><td colSpan={3}>{filtered ? 'Filtered total' : 'Total'} <span>{grouping === 'work-items' ? `${workItems.length} work items / ` : ''}{entries.length} entries</span></td><td className="time-cell">{duration(totalSeconds)}</td></tr></tfoot>}
+              </table></div>
               {!entries.length && <div className="table-empty"><ArrowDownLeft size={22} /><h3>No worklogs found</h3><p>{filtered ? 'No entries match these filters.' : 'No time logged in this date range.'}</p></div>}
             </section>
           </>}
+        </div>
+        <div className="tab-panel" id="invoice-panel" role="tabpanel" aria-labelledby="invoice-tab" hidden={view !== 'invoice'}>
+          <InvoiceSection entries={entries} range={range} userName={report?.user.displayName ?? ''} loading={loading} sample={sample} filtered={filtered} />
+        </div>
         <footer><span><Check size={13} />Read-only worklog report</span><span>{report && !loading ? `Updated ${new Date(report.fetchedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'DevGateway / Jira Cloud'}</span></footer>
       </main>
     </div>
