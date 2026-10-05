@@ -1,0 +1,35 @@
+@import '@fontsource-variable/dm-sans';
+@import '@fontsource-variable/manrope';
+
+:root {
+  font-family: 'DM Sans Variable', sans-serif;
+  color: #252b29;
+  background: #f7f9f8;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  --ink: #252b29;
+  --muted: #77817c;
+  --line: #e3e8e5;
+  --green: #257653;
+  --green-light: #eaf4ed;
+  --white: #ffffff;
+  letter-spacing: 0;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, input, select { font: inherit; letter-spacing: 0; }
+button, a, input, select { -webkit-tap-highlight-color: transparent; }
+button, select, input[type='checkbox'], input[type='radio'] { cursor: pointer; }
+button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+a { color: inherit; text-decoration: none; }
+a:hover { color: var(--green); }
+:focus-visible { outline: 2px solid var(--green); outline-offset: 4px; }
+h1, h2, h3, p { margin: 0; }
+h1, h2, h3 { font-family: 'Manrope Variable', sans-serif; }
+svg { flex-shrink: 0; }
+input, select { min-width: 0; }
+input[type='date'] { color: var(--ink); }
